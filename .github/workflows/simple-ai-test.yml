@@ -1,0 +1,230 @@
+name: Enhanced AI PR Review (Copilot Style)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, master, develop ]
+
+env:
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  ai-pr-review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      issues: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install boto3 requests
+
+    - name: Run Enhanced PR Review
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+      run: |
+        python3 << 'EOF'
+        import os, sys, json, requests, boto3, re
+        from datetime import datetime
+
+        print("🤖 Enhanced AI PR Review (Copilot Style)")
+        
+        # Get environment
+        github_token = os.environ.get('GITHUB_TOKEN')
+        repo = os.environ.get('GITHUB_REPOSITORY') 
+        pr_number = os.environ.get('PR_NUMBER')
+        aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
+        aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
+
+        # Initialize Bedrock
+        bedrock = None
+        try:
+            bedrock = boto3.client('bedrock-runtime', region_name='us-east-1', 
+                                 aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
+            print("✅ Bedrock client initialized")
+        except Exception as e:
+            print(f"⚠️ Bedrock error: {e}")
+
+        # GitHub API headers
+        headers = {'Authorization': f'token {github_token}', 'Accept': 'application/vnd.github.v3+json'}
+
+        try:
+            # Get PR data
+            pr_response = requests.get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}", headers=headers)
+            pr_response.raise_for_status()
+            pr_data = pr_response.json()
+            
+            files_response = requests.get(f"https://api.github.com/repos/{repo}/pulls/{pr_number}/files", headers=headers)
+            files_response.raise_for_status()
+            files_data = files_response.json()
+            
+            print(f"📋 Analyzing PR #{pr_number} with {len(files_data)} files")
+            
+            # Create PR overview
+            title = pr_data.get('title', 'No title')
+            total_files = len(files_data)
+            total_additions = sum(f.get('additions', 0) for f in files_data)
+            total_deletions = sum(f.get('deletions', 0) for f in files_data)
+            
+            overview_parts = [
+                "## Pull Request Overview",
+                "",
+                f"This PR modifies {total_files} file{'s' if total_files != 1 else ''} with {total_additions} additions and {total_deletions} deletions.",
+                "",
+                f"**{title}**",
+                "",
+                "### Changes Summary"
+            ]
+            
+            # Add file changes
+            for file_data in files_data:
+                filename = file_data.get('filename', '')
+                additions = file_data.get('additions', 0)
+                deletions = file_data.get('deletions', 0)
+                status = file_data.get('status', '')
+                
+                if status == 'added':
+                    overview_parts.append(f"• **Added** `{filename}` ({additions} lines)")
+                elif status == 'modified':
+                    overview_parts.append(f"• **Modified** `{filename}` (+{additions}/-{deletions})")
+                else:
+                    overview_parts.append(f"• **Changed** `{filename}`")
+            
+            # Add code diff
+            overview_parts.extend(["", "### Code Changes"])
+            for file_data in files_data:
+                filename = file_data.get('filename', '')
+                patch = file_data.get('patch', '')
+                if patch:
+                    overview_parts.extend([f"", f"**{filename}**", "```diff"])
+                    for line in patch.split('\n'):
+                        if not line.startswith('@@') and not line.startswith('+++') and not line.startswith('---'):
+                            if line.startswith(('+', '-', ' ')):
+                                overview_parts.append(line)
+                    overview_parts.append("```")
+            
+            # Add Copilot tip
+            overview_parts.extend([
+                "",
+                "---", 
+                "**Tip:** Customize your code reviews with copilot-instructions.md. [Create the file](https://github.com/github/copilot-instructions) or [learn how to get started](https://docs.github.com/en/copilot)."
+            ])
+            
+            # Post overview
+            overview_text = "\n".join(overview_parts)
+            comment_response = requests.post(
+                f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+                headers=headers,
+                json={'body': overview_text}
+            )
+            
+            if comment_response.status_code == 201:
+                print("✅ Posted PR overview")
+            else:
+                print(f"⚠️ Failed to post overview: {comment_response.status_code}")
+            
+            # AI Analysis and inline comments
+            if bedrock:
+                commit_sha = pr_data['head']['sha']
+                review_comments = []
+                
+                for file_data in files_data:
+                    filename = file_data.get('filename', '')
+                    patch = file_data.get('patch', '')
+                    
+                    if not patch or not filename.endswith('.py'):
+                        continue
+                    
+                    print(f"🔍 AI analyzing {filename}...")
+                    
+                    # Simple AI prompt
+                    prompt = f"Find issues in this diff for {filename}. Look for test comments like '# hello test' or '#test' that should be removed. Return JSON with comments array. DIFF: {patch}"
+                    
+                    try:
+                        body = {
+                            "messages": [{"role": "user", "content": [{"text": prompt}]}],
+                            "inferenceConfig": {"maxTokens": 800, "temperature": 0.1}
+                        }
+                        
+                        ai_response = bedrock.invoke_model(
+                            modelId="amazon.nova-micro-v1:0",
+                            body=json.dumps(body),
+                            contentType="application/json"
+                        )
+                        
+                        result = json.loads(ai_response['body'].read())
+                        ai_text = result['output']['message']['content'][0]['text']
+                        print(f"🤖 AI response: {ai_text[:100]}...")
+                        
+                        # Try to extract suggestions
+                        if "hello test" in ai_text.lower() or "test comment" in ai_text.lower():
+                            # Parse diff for line numbers of added lines
+                            lines = patch.split('\n')
+                            new_line = 0
+                            for line in lines:
+                                if line.startswith('@@'):
+                                    match = re.match(r'@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@', line)
+                                    if match:
+                                        new_line = int(match.group(1)) - 1
+                                elif line.startswith('+') and not line.startswith('+++'):
+                                    new_line += 1
+                                    if "hello test" in line.lower():
+                                        review_comments.append({
+                                            'path': filename,
+                                            'line': new_line,
+                                            'body': '💡 **Suggestion:** Remove test comment before production\n\n```suggestion\n\n```\n\n*Click "Commit suggestion" to apply this change automatically.*'
+                                        })
+                                        print(f"✅ Found test comment on line {new_line}")
+                                elif line.startswith(' '):
+                                    new_line += 1
+                    
+                    except Exception as e:
+                        print(f"⚠️ AI error for {filename}: {e}")
+                
+                # Post inline comments
+                if review_comments:
+                    review_data = {
+                        'commit_id': commit_sha,
+                        'event': 'COMMENT', 
+                        'comments': review_comments
+                    }
+                    
+                    review_response = requests.post(
+                        f"https://api.github.com/repos/{repo}/pulls/{pr_number}/reviews",
+                        headers=headers,
+                        json=review_data
+                    )
+                    
+                    if review_response.status_code == 200:
+                        print(f"✅ Posted {len(review_comments)} inline suggestions")
+                    else:
+                        print(f"⚠️ Failed to post inline comments: {review_response.status_code}")
+                        print(f"Error: {review_response.text}")
+                else:
+                    print("ℹ️ No issues found - code looks good!")
+            
+            print("🎉 Enhanced PR review completed!")
+            
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+        EOF
