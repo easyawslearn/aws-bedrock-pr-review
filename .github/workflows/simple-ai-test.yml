@@ -71,7 +71,7 @@ jobs:
         # Initialize Bedrock
         bedrock = None
         try:
-            bedrock = boto3.client('bedrock-runtime', region_name='eu-north-1', 
+            bedrock = boto3.client('bedrock-runtime', region_name='us-east-1', 
                                  aws_access_key_id=aws_key, aws_secret_access_key=aws_secret)
             print("✅ Bedrock client initialized")
         except Exception as e:
