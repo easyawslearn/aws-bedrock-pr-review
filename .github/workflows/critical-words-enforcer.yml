@@ -1,0 +1,51 @@
+# 🚨 Critical Words Reporter
+# 
+# This workflow REPORTS critical words found in comments without failing the PR
+# Provides clear feedback and suggestions for improvement
+#
+# FEATURES:
+# - Non-blocking analysis: REPORTS when critical words detected
+# - Clear suggestions for fixing issues
+# - Detailed analysis of all comments
+# - Configurable thresholds and word lists
+
+name: Critical Words Enforcer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main, master, develop ]
+
+jobs:
+  enforce-critical-words:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+      checks: write
+      statuses: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests
+
+    - name: Critical Words Enforcement Check
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        python3 scripts/critical_words_enforcer.py
