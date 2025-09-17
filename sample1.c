@@ -1,36 +1,53 @@
 #include <stdio.h>
+#include <string.h>
 
-// Function to add two numbers
-int add(int a, int b) {
-    return a + b; // TODO: Handle integer overflow case
+// TODO: Add support for negative numbers in factorial
+int factorial(int n) {
+    if (n == 0) return 1;
+    return n * factorial(n - 1); // FIXME: Stack overflow risk for large n
 }
 
-// Function to subtract two numbers
-int subtract(int a, int b) {
-    return a - b; // NOTE: Works fine for positive/negative values
+// BUG: This function does not check buffer size properly
+void unsafe_copy(char *dest, const char *src) {
+    strcpy(dest, src); // HACK: Using strcpy without bounds check
 }
 
-// Function to multiply two numbers
-int multiply(int a, int b) {
-    return a * b; // FIXME: Might overflow for large inputs
+// REVIEW: Should we use iterative instead of recursive here?
+int fibonacci(int n) {
+    if (n <= 1) return n;
+    return fibonacci(n - 1) + fibonacci(n - 2); // OPTIMIZE: This is very slow for large n
 }
 
-// Function to divide two numbers
+// DEPRECATED: Use `safe_divide` instead
 float divide(int a, int b) {
+    if (b == 0) return 0; // BUG: Silent failure, should return error code
+    return (float)a / (float)b;
+}
+
+float safe_divide(int a, int b, int *error) {
     if (b == 0) {
-        // BUG: Division by zero should return error, not 0
-        return 0;
+        *error = 1;
+        return 0.0;
     }
+    *error = 0;
     return (float)a / (float)b;
 }
 
 int main() {
-    int x = 10, y = 0;
+    int num = 5;
 
-    printf("Add: %d\n", add(x, y));
-    printf("Subtract: %d\n", subtract(x, y));
-    printf("Multiply: %d\n", multiply(x, y));
-    printf("Divide: %f\n", divide(x, y)); // REVIEW: Should we handle divide-by-zero more gracefully?
+    printf("Factorial: %d\n", factorial(num));
+    printf("Fibonacci: %d\n", fibonacci(num));
+
+    char buffer[10];
+    unsafe_copy(buffer, "This is too long"); // REVIEW: May cause buffer overflow
+
+    int error;
+    printf("Safe Divide: %f\n", safe_divide(10, 0, &error));
+    if (error) {
+        // NOTE: Division failed, error handled gracefully
+        printf("Error: Division by zero!\n");
+    }
 
     return 0;
 }
